@@ -6,23 +6,28 @@ import path from 'path';
 dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
 const setup = async () => {
-    // Check if DATABASE_URL is present, if so use it directly
+    // Prefer DATABASE_URL if present
     const connectionString = process.env.DATABASE_URL;
 
     if (!connectionString) {
-        console.error("DATABASE_URL not found in .env");
+        console.error('DATABASE_URL not found in .env (expected for local Postgres).');
         process.exit(1);
     }
 
-    console.log("Connecting to database...");
+    console.log('Connecting to database to apply schema...');
 
-    // Connect to the target DB directly (Neon/Cloud)
-    const client = new Client({
-        connectionString,
-        ssl: {
-            rejectUnauthorized: false
-        }
-    });
+    const isLocal = /localhost|127\.0\.0\.1/i.test(connectionString);
+
+    const client = new Client(
+        isLocal
+            ? { connectionString }
+            : {
+                  connectionString,
+                  ssl: {
+                      rejectUnauthorized: false,
+                  },
+              }
+    );
 
     try {
         await client.connect();
@@ -34,7 +39,6 @@ const setup = async () => {
         await client.query(schemaSql);
         console.log('Schema applied successfully.');
         await client.end();
-
     } catch (err) {
         console.error('Database setup failed:', err);
         process.exit(1);

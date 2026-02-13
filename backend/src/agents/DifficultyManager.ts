@@ -37,11 +37,11 @@ export class DifficultyManager {
                 [courseId]
             );
 
-            const scores = historyQuery.rows.map(r => r.quiz_score || 0);
+            const scores = historyQuery.rows.map((r: { quiz_score: number | null }) => r.quiz_score || 0);
 
             if (scores.length === 0) return 'Standard';
 
-            const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+            const avgScore = scores.reduce((a: number, b: number) => a + b, 0) / scores.length;
             let difficulty: DifficultyLevel = 'Standard';
             let reason = "Maintained Standard difficulty";
 

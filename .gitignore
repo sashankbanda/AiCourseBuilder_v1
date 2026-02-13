@@ -147,3 +147,6 @@ supabase/.temp/
 backend/dist/
 backend/build/
 *.swp
+venv/
+audio.wav
+__pycache__/

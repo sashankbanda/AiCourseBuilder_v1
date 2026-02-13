@@ -9,6 +9,8 @@ import os from 'os';
 import ytdl from 'ytdl-core';
 import { GoogleAIFileManager } from "@google/generative-ai/server";
 import { DifficultyManager } from './DifficultyManager';
+import { generateLocalContentFromTranscript } from '../utils/simpleSummarizer';
+import { transcribeWithASR } from '../services/asrService';
 
 // Helper for audio download (refactored from controller)
 const downloadAudio = async (url: string, videoId: string): Promise<string> => {
@@ -45,6 +47,7 @@ export class Orchestrator {
 
     async executeCourse(courseId: string, plan: any, userId: string, topic: string) {
         const difficultyManager = new DifficultyManager();
+        const contentMode = process.env.CONTENT_MODE || 'local'; // 'local' = no Gemini in execution
         const results = [];
         let completedLessons = 0;
         const totalLessons = plan.lessons.length;
@@ -77,7 +80,7 @@ export class Orchestrator {
 
             const videoMetadata = await getVideoMetadata(videoId);
 
-            // B. Get Content (Transcript or Audio by ContentAgent)
+            // B. Get Content (Transcript or Audio)
             let transcriptText = "";
             let generatedContent: any = {};
             let isAudioFallback = false;
@@ -89,51 +92,75 @@ export class Orchestrator {
                 isAudioFallback = true;
             }
 
-            // C. Generate Content (Agentic Loop)
-            if (!isAudioFallback) {
-                this.sendEvent('progress', { message: `🧠 Content Agent (${difficultyMode}): Analyzing transcript...` });
+            // C. Generate Content
+            if (contentMode === 'local') {
+                // Local summarization ONLY. No Gemini / Groq usage here.
+                if (isAudioFallback) {
+                    this.sendEvent('progress', { message: `🎧 Local ASR: Transcribing audio for "${lessonPlan.title}"...` });
+                    try {
+                        const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+                        transcriptText = await transcribeWithASR(youtubeUrl);
+                        this.sendEvent('progress', { message: `🧠 Local Summarizer: Summarizing ASR transcript for "${lessonPlan.title}"...` });
+                        generatedContent = generateLocalContentFromTranscript(transcriptText);
+                    } catch (err) {
+                        console.error('ASR fallback failed', err);
+                        results.push(this.createEmptyLesson(lessonPlan));
+                        completedLessons++;
+                        continue;
+                    }
+                } else {
+                    this.sendEvent('progress', { message: `🧠 Local Summarizer: Summarizing transcript for "${lessonPlan.title}"...` });
+                    generatedContent = generateLocalContentFromTranscript(transcriptText);
+                }
 
-                // 1. Extract Salient Phrases (GRPO Step 1)
-                const { phrases } = await this.contentAgent.extractSalientPhrases([transcriptText]);
+            } else {
+                // LLM-based content generation (original behavior)
+                if (!isAudioFallback) {
+                    this.sendEvent('progress', { message: `🧠 Content Agent (${difficultyMode}): Analyzing transcript...` });
 
-                // 2. Generate Draft with Adaptive Difficulty
-                generatedContent = await this.contentAgent.generateLessonContent(transcriptText, phrases, lessonPlan.cognitive_level, difficultyMode);
+                    // 1. Extract Salient Phrases (GRPO Step 1)
+                    const { phrases } = await this.contentAgent.extractSalientPhrases([transcriptText]);
 
-                // 3. Verification Loop
-                let attempts = 0;
-                let isValid = false;
+                    // 2. Generate Draft with Adaptive Difficulty
+                    generatedContent = await this.contentAgent.generateLessonContent(transcriptText, phrases, lessonPlan.cognitive_level, difficultyMode);
 
-                while (!isValid && attempts < 2) {
-                    this.sendEvent('progress', { message: `🛡️ Verifier Agent: Validating attempt ${attempts + 1}...` });
+                    // 3. Verification Loop
+                    let attempts = 0;
+                    let isValid = false;
 
-                    const verification = await this.verifier.verifyContent(transcriptText, generatedContent.content, generatedContent.quiz_data.questions);
+                    while (!isValid && attempts < 2) {
+                        this.sendEvent('progress', { message: `🛡️ Verifier Agent: Validating attempt ${attempts + 1}...` });
 
-                    if (verification.valid) {
-                        isValid = true;
-                        console.log("✅ Verification Passed");
-                    } else {
-                        console.warn("❌ Verification Failed:", verification.feedback);
-                        attempts++;
-                        if (attempts === 2) {
-                            console.warn("Max retries reached, using best effort.");
+                        const verification = await this.verifier.verifyContent(transcriptText, generatedContent.content, generatedContent.quiz_data.questions);
+
+                        if (verification.valid) {
                             isValid = true;
+                            console.log("✅ Verification Passed");
+                        } else {
+                            console.warn("❌ Verification Failed:", verification.feedback);
+                            attempts++;
+                            if (attempts === 2) {
+                                console.warn("Max retries reached, using best effort.");
+                                isValid = true;
+                            }
                         }
                     }
-                }
-            } else {
-                // Audio Fallback
-                this.sendEvent('progress', { message: `🎧 Content Agent: Audio Fallback for "${lessonPlan.title}"...` });
-                try {
-                    const audioPath = await downloadAudio(`https://www.youtube.com/watch?v=${videoId}`, videoId);
-                    const uploadResponse = await fileManager.uploadFile(audioPath, { mimeType: "audio/mp3" });
+                } else {
+                    // Audio Fallback with Gemini
+                    this.sendEvent('progress', { message: `🎧 Content Agent: Audio Fallback for "${lessonPlan.title}"...` });
+                    try {
+                        const audioPath = await downloadAudio(`https://www.youtube.com/watch?v=${videoId}`, videoId);
+                        const uploadResponse = await fileManager.uploadFile(audioPath, { mimeType: "audio/mp3" });
 
-                    generatedContent = await this.contentAgent.processAudio(uploadResponse.file.uri, topic);
+                        generatedContent = await this.contentAgent.processAudio(uploadResponse.file.uri, topic);
 
-                    if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
-                } catch (err) {
-                    console.error("Audio processing failed", err);
-                    results.push(this.createEmptyLesson(lessonPlan));
-                    continue;
+                        if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
+                    } catch (err) {
+                        console.error("Audio processing failed", err);
+                        results.push(this.createEmptyLesson(lessonPlan));
+                        completedLessons++;
+                        continue;
+                    }
                 }
             }
 
