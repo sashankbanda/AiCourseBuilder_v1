@@ -1,70 +1,79 @@
 # AI Course Builder
 
-A powerful, AI-driven application that generates personalized learning courses instantly. Built with React, Node.js, Express, and PostgreSQL.
+AI-powered application that generates personalized learning courses from YouTube content, with auto-transcription and smart summarization.
 
-## 📋 Prerequisites
+## Prerequisites
 
-*   [Node.js](https://nodejs.org/) (v16 or higher)
-*   [PostgreSQL](https://www.postgresql.org/) (or a cloud provider like [Neon](https://neon.tech))
-*   [Google Gemini API Key](https://aistudio.google.com/app/apikey)
+- **Python 3.10+** — [python.org](https://www.python.org/downloads/)
+- **Node.js 16+** — [nodejs.org](https://nodejs.org/)
+- **FFmpeg** — [ffmpeg.org](https://ffmpeg.org/download.html) (must be in PATH)
+- **PostgreSQL** — local or cloud ([Neon](https://neon.tech))
 
-## 🚀 Quick Setup (Windows & macOS)
+## Setup
 
-### 1. Installation
+### 1. Clone & install frontend
 
-**Root (Frontend) Dependencies:**
 ```bash
 npm install
 ```
 
-**Backend Dependencies:**
+### 2. Install backend
+
 ```bash
 cd backend
-npm install
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Mac/Linux
+pip install -r requirements.txt
 cd ..
 ```
 
-### 2. Environment Configuration
+### 3. Configure environment
 
-1.  Copy the example environment file in the **root** directory:
-    *   **Windows:** `copy .env.example .env`
-    *   **Mac/Linux:** `cp .env.example .env`
-2.  Open `.env` and fill in your details:
-    *   `DATABASE_URL`: Your PostgreSQL connection string (keep `sslmode=require` for Neon).
-    *   `GEMINI_API_KEY`: Your Google AI Studio key.
-    *   `JWT_SECRET`: Any random string.
+Copy `.env.example` to `.env` and fill in:
 
-### 3. Database Initialization
+```
+DATABASE_URL=postgresql://user:password@host:port/database?sslmode=require
+GEMINI_API_KEY=your_gemini_api_key
+GROQ_API_KEY=your_groq_api_key
+JWT_SECRET=any_random_string
+```
 
-Initialize the database schema from the backend directory:
+Get API keys:
+- **Gemini**: [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+- **Groq**: [console.groq.com/keys](https://console.groq.com/keys)
+
+### 4. Initialize database
 
 ```bash
 cd backend
-npm run init-db
+python -c "import asyncio; from app.database import init_db; asyncio.run(init_db())"
 cd ..
 ```
 
-## 🏃‍♂️ Running the Application
+Or run `schema.sql` directly against your PostgreSQL database.
 
-You need to run the backend and frontend in separate terminals.
+## Run
 
-**Terminal 1: Backend**
+**Terminal 1 — Backend:**
 ```bash
 cd backend
-npm run dev
-# Server starts on http://localhost:5000
+venv\Scripts\activate
+uvicorn app.main:app --reload --port 5000
 ```
 
-**Terminal 2: Frontend (Root)**
+**Terminal 2 — Frontend:**
 ```bash
 npm run dev
-# App opens at http://localhost:8080 (or similar)
 ```
 
-## 🛠️ Tech Stack
-*   **Frontend**: React, TypeScript, Vite, Tailwind CSS
-*   **Backend**: Node.js, Express, TypeScript, PostgreSQL
-*   **AI**: Google Gemini
+Open **http://localhost:8080** in your browser.
 
-## 📄 License
-ISC License
+## Tech Stack
+
+| Layer | Tech |
+|-------|------|
+| Frontend | React, TypeScript, Vite, Tailwind CSS |
+| Backend | Python, FastAPI, PostgreSQL |
+| AI | Google Gemini (content), Groq LLM (summarization) |
+| Transcription | YouTube captions → Whisper fallback |

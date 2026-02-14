@@ -1,25 +1,9 @@
 import json
-import os
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
-    print("[ContentAgent] Warning: google-generative-ai not installed. AI features will fail.")
-
 from ..config.defaults import COURSE_DEFAULTS
 from ..lib.llm.llm_factory import LLMFactory
 
-class ContentAgent:
-    def __init__(self):
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if api_key and genai:
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel(COURSE_DEFAULTS.LLM.GEMINI_MODEL)
-        elif not genai:
-             print("[ContentAgent] google-generative-ai library missing.")
-        else:
-            print("[ContentAgent] GEMINI_API_KEY not set. multi-modal features may fail.")
 
+class ContentAgent:
     async def extract_salient_phrases(self, transcripts: list[str]):
         combined_text = "\n".join(transcripts)[:30000]
         prompt = """
@@ -82,45 +66,13 @@ class ContentAgent:
             print(f"Content Generation Error: {e}")
             raise e
 
-    async def process_audio(self, audio_uri: str, topic: str):
-        # "Fine-tuning" via prompt injection for technical terms
-        prompt = f"""
-        Listen to this audio about "{topic}".
-        
-        **Context**: This is a technical course. Pay special attention to:
-        - Alphanumeric serial numbers.
-        - Domain-specific terminology (Fintech, Engineering, etc.).
-        - Acronyms.
-        
-        Generate the same JSON structure as standard text processing (content, notes, quiz_data, challenge_question).
-        """
-        
-        # We need to upload file first if it's a local path, or if audio_uri is already a file URI in Gemini
-        # flexible handling:
-        
-        file_ref = None
-        if os.path.exists(audio_uri):
-             print(f"Uploading {audio_uri} to Gemini...")
-             file_ref = genai.upload_file(audio_uri, mime_type="audio/mp3")
-             # Wait for processing? Audio checks usually fast.
-        else:
-             # Assume it's already a URI or handle error?
-             # For now assume it was downloaded to local path by Orchestrator
-             raise ValueError(f"Audio file not found at {audio_uri}")
-
-        response = self.model.generate_content(
-            [file_ref, prompt],
-            generation_config={"response_mime_type": "application/json"}
-        )
-        
-        return self._parse_json(response.text)
-
     def _parse_json(self, text: str):
-         # Clean up potential markdown code blocks
+        # Clean up potential markdown code blocks
         if text.startswith("```json"):
             text = text[7:]
         if text.endswith("```"):
             text = text[:-3]
         if text.startswith("```"):
-                text = text[3:]
+            text = text[3:]
         return json.loads(text)
+

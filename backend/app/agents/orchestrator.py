@@ -5,8 +5,10 @@ from .planner_agent import PlannerAgent
 from .content_agent import ContentAgent
 from .verifier_agent import VerifierAgent
 from .difficulty_manager import DifficultyManager
-from ..services.youtube_service import search_videos, get_video_metadata, get_transcript, download_audio
-from ..services.asr_service import transcribe_with_asr
+from ..services.youtube_service import search_videos
+from ..services.transcript_extractor import extract_transcript
+from ..services.transcript_summarizer_service import summarize_transcript
+
 
 class Orchestrator:
     def __init__(self, send_event: Callable[[str, Any], None]):
@@ -23,7 +25,6 @@ class Orchestrator:
 
     async def execute_course(self, course_id: str, plan: dict, user_id: str, topic: str):
         difficulty_manager = DifficultyManager()
-        content_mode = os.environ.get('CONTENT_MODE', 'local')
         results = []
         completed_lessons = 0
         total_lessons = len(plan['lessons'])
@@ -45,6 +46,7 @@ class Orchestrator:
             if not videos:
                 print(f"No video found for {lesson_plan['title']}")
                 results.append(self._create_empty_lesson(lesson_plan))
+                completed_lessons += 1
                 continue
                 
             video = videos[0]
@@ -53,91 +55,76 @@ class Orchestrator:
             if not video_id:
                 print(f"No valid video ID found for {lesson_plan['title']}")
                 results.append(self._create_empty_lesson(lesson_plan))
+                completed_lessons += 1
                 continue
 
-            # video_metadata = await get_video_metadata(video_id) # Not strictly needed unless we store it
-
-            # B. Get Content (Transcript or Audio)
-            transcript_text = ""
-            generated_content = {}
-            is_audio_fallback = False
+            # B. Extract Transcript (official captions → Whisper fallback)
+            await self.send_event('progress', {
+                'message': f"📝 Extracting transcript for: \"{lesson_plan['title']}\"..."
+            })
 
             try:
-                # Try fetching existing transcript
-                transcript_text = await get_transcript(video_id)
-                if not transcript_text:
-                    raise Exception("No transcript found")
-            except Exception:
-                is_audio_fallback = True
+                transcript_text = await extract_transcript(video_id)
+            except Exception as err:
+                print(f"Transcript extraction failed for {lesson_plan['title']}: {err}")
+                results.append(self._create_empty_lesson(lesson_plan))
+                completed_lessons += 1
+                continue
 
-            # C. Generate Content
-            if content_mode == 'local':
-                # Skip local implementation for now or implement if needed. 
-                # The user request emphasized "replacing TS backend with Python", so we should probably support the full flow.
-                # But 'local' mode in TS used `simpleSummarizer`, which I haven't ported.
-                # I'll default to the 'gemini/llm' path or implement a basic local fallback if needed.
-                # For now, I'll treat 'local' as 'use LLM but with local ASR' if needed, or just warn.
-                # Actually, in TS 'local' meant "Generate Local Content" which was a simple heuristic summary.
-                # I will Skip that to focus on the AI Agents part which is the core value.
-                # Force LLM mode for this migration or implement simple summary?
-                # I'll fall through to LLM logic or just handle fallback.
-                pass 
+            if not transcript_text:
+                print(f"Empty transcript for {lesson_plan['title']}")
+                results.append(self._create_empty_lesson(lesson_plan))
+                completed_lessons += 1
+                continue
 
-            # LLM-based content generation logic (Default)
-            if not is_audio_fallback:
-                await self.send_event('progress', {'message': f"🧠 Content Agent ({difficulty_mode}): Analyzing transcript..."})
+            # C. Summarize transcript (TF-IDF + Groq LLM polishing)
+            await self.send_event('progress', {
+                'message': f"📊 Summarizing transcript for: \"{lesson_plan['title']}\"..."
+            })
+            summary_data = await summarize_transcript(transcript_text)
 
-                # 1. Extract Salient Phrases
-                phrases_data = await self.content_agent.extract_salient_phrases([transcript_text])
-                phrases = phrases_data.get('phrases', [])
+            # D. Generate lesson content via LLM (Content Agent)
+            await self.send_event('progress', {
+                'message': f"🧠 Content Agent ({difficulty_mode}): Generating lesson content..."
+            })
 
-                # 2. Generate Draft
-                generated_content = await self.content_agent.generate_lesson_content(
-                    transcript_text, phrases, lesson_plan.get('cognitive_level', 'understand'), difficulty_mode
+            # 1. Extract Salient Phrases
+            phrases_data = await self.content_agent.extract_salient_phrases([transcript_text])
+            phrases = phrases_data.get('phrases', [])
+
+            # 2. Generate Draft
+            generated_content = await self.content_agent.generate_lesson_content(
+                transcript_text, phrases, lesson_plan.get('cognitive_level', 'understand'), difficulty_mode
+            )
+
+            # Merge summarizer notes into generated content if available
+            if summary_data.get('notes'):
+                generated_content['notes'] = summary_data['notes']
+
+            # E. Verification Loop
+            attempts = 0
+            is_valid = False
+
+            while not is_valid and attempts < 2:
+                await self.send_event('progress', {
+                    'message': f"🛡️ Verifier Agent: Validating attempt {attempts + 1}..."
+                })
+                
+                verification = await self.verifier.verify_content(
+                    transcript_text,
+                    generated_content.get('content', ''),
+                    generated_content.get('quiz_data', {}).get('questions', [])
                 )
 
-                # 3. Verification Loop
-                attempts = 0
-                is_valid = False
-
-                while not is_valid and attempts < 2:
-                    await self.send_event('progress', {'message': f"🛡️ Verifier Agent: Validating attempt {attempts + 1}..."})
-                    
-                    verification = await self.verifier.verify_content(
-                        transcript_text, generated_content.get('content', ''), generated_content.get('quiz_data', {}).get('questions', [])
-                    )
-
-                    if verification.get('valid'):
+                if verification.get('valid'):
+                    is_valid = True
+                    print("✅ Verification Passed")
+                else:
+                    print(f"❌ Verification Failed: {verification.get('feedback')}")
+                    attempts += 1
+                    if attempts == 2:
+                        print("Max retries reached, using best effort.")
                         is_valid = True
-                        print("✅ Verification Passed")
-                    else:
-                        print(f"❌ Verification Failed: {verification.get('feedback')}")
-                        attempts += 1
-                        if attempts == 2:
-                             print("Max retries reached, using best effort.")
-                             is_valid = True
-            
-            else:
-                # Audio Fallback
-                await self.send_event('progress', {'message': f"🎧 Content Agent: Audio Fallback for \"{lesson_plan['title']}\"..."})
-                audio_path = None
-                try:
-                    youtube_url = f"https://www.youtube.com/watch?v={video_id}"
-                    audio_path = download_audio(youtube_url)
-                    
-                    if not audio_path:
-                        raise Exception("Failed to download audio")
-
-                    generated_content = await self.content_agent.process_audio(audio_path, topic)
-
-                except Exception as err:
-                    print(f"Audio processing failed: {err}")
-                    results.append(self._create_empty_lesson(lesson_plan))
-                    completed_lessons += 1
-                    continue
-                finally:
-                    if audio_path and os.path.exists(audio_path):
-                        os.remove(audio_path)
 
             results.append({
                 "title": lesson_plan['title'],
@@ -171,3 +158,5 @@ class Orchestrator:
             "cognitive_level": plan.get('cognitive_level', 'understand'),
             "pedagogical_metadata": {}
         }
+
+

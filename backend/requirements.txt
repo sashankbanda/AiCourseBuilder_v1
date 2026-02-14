@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 python-dotenv
-google-generative-ai
+google-generativeai
 yt-dlp
 youtube-search-python
 youtube-transcript-api
@@ -10,3 +10,6 @@ requests
 groq
 asyncpg
 PyJWT
+faster-whisper
+ctranslate2
+
