@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+yt-dlp
+youtube-search-python
+youtube-transcript-api
+pydantic
+requests
+asyncpg
+PyJWT
