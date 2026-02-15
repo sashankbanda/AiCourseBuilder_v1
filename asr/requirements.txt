@@ -1,5 +1,28 @@
+# ASR module: all required packages with compatible versions.
+# Python 3.9+ required. Install: pip install -r requirements.txt
+#
+# For CUDA 11 / cuDNN 8 on Windows (if GPU crashes): after install run
+#   pip install ctranslate2==4.4.0
 
-faster-whisper
-yt-dlp
-ffmpeg-python
-tqdm
+# ---- Direct imports (transcribe.py, test_transcribe.py) ----
+faster-whisper>=1.0,<2
+yt-dlp>=2024.1.1
+tqdm>=4.65.0
+
+# ---- faster-whisper dependencies (must be present) ----
+ctranslate2>=4.0,<5
+huggingface-hub>=0.21
+tokenizers>=0.13,<1
+onnxruntime>=1.14,<2
+av>=11
+
+# ---- ctranslate2 dependencies ----
+numpy>=1.20,<3
+pyyaml>=5.3,<7
+
+# ---- huggingface-hub core deps (often pulled in; listed for clarity) ----
+filelock>=3.0
+fsspec>=2023.5.0
+httpx>=0.23.0,<1
+packaging>=20.9
+typing-extensions>=4.1.0
