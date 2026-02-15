@@ -79,34 +79,41 @@ export const InteractiveQuiz = ({ quiz, onComplete, previousScore }: Interactive
           <p className="text-4xl font-bold text-primary">{percentage}%</p>
         </div>
 
-        {previousScore !== null && previousScore !== score && (
+        {previousScore != null && previousScore !== score && (
           <p className="text-sm text-muted-foreground">
-            Previous score: {previousScore}/5
+            Previous score: {previousScore}/{quiz.questions.length}
           </p>
         )}
 
         <div className="space-y-4 pt-4">
           <h4 className="font-semibold">Review Answers:</h4>
-          {quiz.questions.map((q, index) => (
-            <div key={index} className="text-left p-4 rounded-lg bg-background/50">
-              <p className="font-medium mb-2">{q.question}</p>
-              <div className="flex items-center gap-2 text-sm">
-                {answers[index] === q.correctAnswer ? (
-                  <CheckCircle2 className="w-4 h-4 text-success" />
-                ) : (
-                  <XCircle className="w-4 h-4 text-destructive" />
+          {quiz.questions.map((q, index) => {
+            const userAnswerIndex = answers[index];
+            const correct = userAnswerIndex === q.correctAnswer;
+            const userAnswerText = typeof userAnswerIndex === 'number' && q.options[userAnswerIndex] != null
+              ? q.options[userAnswerIndex]
+              : '—';
+            return (
+              <div key={index} className="text-left p-4 rounded-lg bg-background/50">
+                <p className="font-medium mb-2">{q.question}</p>
+                <div className="flex items-center gap-2 text-sm">
+                  {correct ? (
+                    <CheckCircle2 className="w-4 h-4 text-success" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-destructive" />
+                  )}
+                  <span className={correct ? 'text-success' : 'text-destructive'}>
+                    Your answer: {userAnswerText}
+                  </span>
+                </div>
+                {!correct && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Correct answer: {q.options[q.correctAnswer]}
+                  </p>
                 )}
-                <span className={answers[index] === q.correctAnswer ? 'text-success' : 'text-destructive'}>
-                  Your answer: {q.options[answers[index]]}
-                </span>
               </div>
-              {answers[index] !== q.correctAnswer && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  Correct answer: {q.options[q.correctAnswer]}
-                </p>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <Button onClick={handleRetake} variant="outline" className="w-full">
@@ -117,6 +124,8 @@ export const InteractiveQuiz = ({ quiz, onComplete, previousScore }: Interactive
   }
 
   const question = quiz.questions[currentQuestion];
+  const radioGroupKey = `q-${currentQuestion}`;
+  const optionId = (i: number) => `q${currentQuestion}-opt-${i}`;
 
   return (
     <Card className="p-6 space-y-6 bg-card/50 backdrop-blur-sm">
@@ -132,12 +141,16 @@ export const InteractiveQuiz = ({ quiz, onComplete, previousScore }: Interactive
         <h3 className="text-xl font-semibold">{question.question}</h3>
       </div>
 
-      <RadioGroup value={selectedAnswer?.toString()} onValueChange={(val) => handleAnswerSelect(parseInt(val))}>
+      <RadioGroup
+        key={radioGroupKey}
+        value={selectedAnswer !== null ? selectedAnswer.toString() : ''}
+        onValueChange={(val) => (val !== '' ? handleAnswerSelect(parseInt(val, 10)) : undefined)}
+      >
         <div className="space-y-3">
           {question.options.map((option, index) => (
-            <div key={index} className="flex items-center space-x-3 p-4 rounded-lg border border-border hover:border-primary transition-colors cursor-pointer">
-              <RadioGroupItem value={index.toString()} id={`option-${index}`} />
-              <Label htmlFor={`option-${index}`} className="flex-1 cursor-pointer">
+            <div key={optionId(index)} className="flex items-center space-x-3 p-4 rounded-lg border border-border hover:border-primary transition-colors cursor-pointer">
+              <RadioGroupItem value={index.toString()} id={optionId(index)} />
+              <Label htmlFor={optionId(index)} className="flex-1 cursor-pointer">
                 {option}
               </Label>
             </div>
