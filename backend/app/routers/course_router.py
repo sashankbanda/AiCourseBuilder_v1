@@ -164,3 +164,36 @@ async def _run_orchestrator(orchestrator, course_id, plan, user_id, topic, queue
         queue.put_nowait(('error', {'message': str(e)}))
     finally:
         queue.put_nowait(('END', None))
+
+
+# Lesson sub-routes
+
+@router.get("/{course_id}/lessons")
+async def get_lessons(course_id: str, user: dict = Depends(get_current_user)):
+    query = "SELECT * FROM lessons WHERE course_id = $1 ORDER BY order_index ASC"
+    rows = await Database.fetch(query, course_id)
+    return [dict(row) for row in rows]
+
+
+@router.post("/{course_id}/lessons")
+async def save_lessons(course_id: str, body: list, user: dict = Depends(get_current_user)):
+    for i, lesson_data in enumerate(body):
+        query = """
+            INSERT INTO lessons
+            (course_id, title, content, order_index, videos, quiz_data, notes, cognitive_level, pedagogical_metadata, is_completed)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        """
+        await Database.execute(
+            query,
+            course_id,
+            lesson_data.get('title', ''),
+            lesson_data.get('content', ''),
+            i,
+            json.dumps(lesson_data.get('videos', [])),
+            json.dumps(lesson_data.get('quiz_data', {})),
+            lesson_data.get('notes', ''),
+            lesson_data.get('cognitive_level', 'understand'),
+            json.dumps(lesson_data.get('pedagogical_metadata', {})),
+            False,
+        )
+    return {"message": "Lessons saved"}

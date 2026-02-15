@@ -5,7 +5,7 @@ import os
 
 load_dotenv()
 
-from .routers import course_router
+from .routers import course_router, auth_router, lesson_router, usage_router
 from .config.db import Database
 
 app = FastAPI(title="AiCourseBuilder Backend")
@@ -19,7 +19,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router)
 app.include_router(course_router.router)
+app.include_router(lesson_router.router)
+app.include_router(usage_router.router)
 
 @app.on_event("startup")
 async def startup():
