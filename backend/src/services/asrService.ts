@@ -2,7 +2,17 @@ import { execFile } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
-const ASR_DIR = path.resolve(__dirname, '../../../asr');
+// Resolve asr dir: from backend/dist/services -> ../../../asr, or from process.cwd() (e.g. repo root)
+function getAsrDir(): string {
+    const fromDir = path.resolve(__dirname, '../../../asr');
+    if (fs.existsSync(fromDir)) return fromDir;
+    const fromCwd = path.resolve(process.cwd(), 'asr');
+    if (fs.existsSync(fromCwd)) return fromCwd;
+    const fromCwdParent = path.resolve(process.cwd(), '..', 'asr');
+    if (fs.existsSync(fromCwdParent)) return fromCwdParent;
+    return fromDir;
+}
+const ASR_DIR = getAsrDir();
 const SCRIPT_PATH = path.join(ASR_DIR, 'transcribe.py');
 const TRANSCRIPT_OUTPUT_FILE = path.join(ASR_DIR, 'transcript_output.txt');
 
@@ -23,18 +33,26 @@ function parseTranscriptFromStdout(stdout: string): string | null {
 }
 
 function runTranscribeScript(youtubeUrl: string, env: NodeJS.ProcessEnv): Promise<string> {
+    if (!fs.existsSync(SCRIPT_PATH)) {
+        return Promise.reject(new Error(`ASR script not found at ${SCRIPT_PATH}`));
+    }
     const venvPython = path.join(ASR_DIR, 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     const python = process.env.ASR_PYTHON_PATH || (fs.existsSync(venvPython) ? venvPython : 'python');
     return new Promise((resolve, reject) => {
         execFile(python, ['-u', SCRIPT_PATH, youtubeUrl], {
             maxBuffer: 1024 * 1024 * 20,
             env: { ...process.env, ...env },
+            cwd: ASR_DIR,
         }, (error, stdout, stderr) => {
             if (error) {
                 return reject({ error, stdout, stderr });
             }
             const text = parseTranscriptFromStdout(stdout);
             if (text) return resolve(text);
+            if (fs.existsSync(TRANSCRIPT_OUTPUT_FILE)) {
+                const fromFile = fs.readFileSync(TRANSCRIPT_OUTPUT_FILE, 'utf-8').trim();
+                if (fromFile.length > 0) return resolve(fromFile);
+            }
             reject(new Error('ASR produced no transcript text'));
         });
     });
@@ -62,8 +80,16 @@ export async function transcribeWithASR(youtubeUrl: string): Promise<string> {
                         return fromFile;
                     }
                 }
+                if (fs.existsSync(TRANSCRIPT_OUTPUT_FILE)) {
+                    const fromFile = fs.readFileSync(TRANSCRIPT_OUTPUT_FILE, 'utf-8').trim();
+                    if (fromFile.length > 0) return fromFile;
+                }
                 throw retryErr?.error || retryErr;
             }
+        }
+        if (fs.existsSync(TRANSCRIPT_OUTPUT_FILE)) {
+            const fromFile = fs.readFileSync(TRANSCRIPT_OUTPUT_FILE, 'utf-8').trim();
+            if (fromFile.length > 0) return fromFile;
         }
         throw first?.error || first;
     }

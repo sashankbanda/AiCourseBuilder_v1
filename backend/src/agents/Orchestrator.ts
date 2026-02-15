@@ -89,50 +89,54 @@ export class Orchestrator {
             const videoMetadata = await getVideoMetadata(videoId);
 
             // B. Get Content (Captions / Transcripts)
-            // We attempt to follow the described pipeline:
-            // - For each of the top 5 videos for this subtopic, try to fetch
-            //   captions via YouTubeTranscript (manual subtitles or auto‑generated).
-            // - If none of the videos have captions, fall back to ASR (Whisper‑style)
-            //   on the primary video.
-            // - All available transcripts are merged and summarized together.
+            // For every video: first try direct captions; if not possible, extract via ASR for that video.
+            // Merge all transcripts (from captions + ASR per video) for content generation.
             let mergedTranscriptText = "";
             let generatedContent: any = {};
             let usedASR = false;
 
             const perVideoTranscripts: string[] = [];
 
-            // Try to fetch captions for each shortlisted video (manual or auto).
             for (const v of videos) {
                 const vid = v.id?.videoId;
                 if (!vid) continue;
+                let text = "";
                 try {
                     const transcriptEntries = await YoutubeTranscript.fetchTranscript(vid);
-                    const text = transcriptEntries.map(t => t.text).join(' ').trim();
-                    if (text) {
-                        perVideoTranscripts.push(text);
-                    }
+                    text = (transcriptEntries || []).map((t: { text: string }) => t.text).join(' ').trim();
                 } catch (e) {
-                    console.warn(`No captions available for video ${vid}, will rely on other videos or ASR fallback if needed.`);
+                    // Direct captions failed for this video
                 }
+                if (!text) {
+                    this.sendEvent('progress', { message: `🎧 ASR: Transcribing video ${vid}...` });
+                    try {
+                        const youtubeUrl = `https://www.youtube.com/watch?v=${vid}`;
+                        text = await transcribeWithASR(youtubeUrl);
+                        usedASR = true;
+                    } catch (err: any) {
+                        console.warn(`ASR failed for video ${vid}:`, err?.message || err);
+                    }
+                }
+                if (text) perVideoTranscripts.push(text);
             }
 
-            if (perVideoTranscripts.length > 0) {
-                mergedTranscriptText = perVideoTranscripts.join(' ');
-            }
+            mergedTranscriptText = perVideoTranscripts.join(' ').trim();
 
-            // If none of the top videos had captions, fall back to ASR on the primary one.
             if (!mergedTranscriptText) {
-                this.sendEvent('progress', { message: `🎧 Local ASR: No captions found, transcribing audio for "${lessonPlan.title}"...` });
+                this.sendEvent('progress', { message: `🔄 Last-resort ASR for first video...` });
                 try {
                     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
                     mergedTranscriptText = await transcribeWithASR(youtubeUrl);
                     usedASR = true;
-                } catch (err) {
-                    console.error('ASR fallback failed', err);
-                    results.push(this.createEmptyLesson(lessonPlan));
-                    completedLessons++;
-                    continue;
+                } catch (err: any) {
+                    console.error(`[Orchestrator] No transcript for "${lessonPlan.title}". ASR error:`, err?.message || err);
                 }
+            }
+
+            if (!mergedTranscriptText) {
+                const videoTitles = (videos as any[]).slice(0, 5).map((v: any) => v.snippet?.title || 'Video').join('. ');
+                mergedTranscriptText = `Lesson: ${lessonPlan.title}. Recommended videos: ${videoTitles}. (Transcript could not be obtained; please watch the videos for full content.)`;
+                console.warn(`[Orchestrator] Using fallback content for "${lessonPlan.title}".`);
             }
 
             // C. Course Content Generation from merged transcripts

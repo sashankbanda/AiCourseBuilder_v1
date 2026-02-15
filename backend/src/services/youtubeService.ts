@@ -3,33 +3,67 @@ import { google } from 'googleapis';
 const youtube = google.youtube('v3');
 const API_KEY = process.env.YOUTUBE_API_KEY;
 
+// Educational keywords appended to subtopic for YouTube search (per spec)
+const EDUCATIONAL_KEYWORDS = 'tutorial education lesson learn';
+
 // Simple in-memory cache for ETag-like behavior
 const videoCache = new Map<string, { etag: string, data: any, timestamp: number }>();
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
 
-export const searchVideos = async (query: string, maxResults = 1) => {
+/**
+ * Automated Video Retrieval (per spec):
+ * - Subtopic + educational keywords sent as query to YouTube Data API v3.
+ * - search.list with order=relevance, maxResults=30.
+ * - Second request with videos.list part=statistics to get likeCount.
+ * - Top 5 videos shortlisted by likeCount. Repeated per subtopic by caller.
+ */
+export const searchVideos = async (subtopic: string): Promise<any[]> => {
     if (!API_KEY) {
         throw new Error("YOUTUBE_API_KEY is not set");
     }
 
     try {
-        // Optimization: Try to find a playlist first? 
-        // Actually, for a specific subtopic search, normal search is mostly unavoidable unless we follow a specific channel.
-        // The user request said: "prefers playlistItems.list (1 unit) by searching for channel 'uploads' playlists"
-        // This is complex if we don't know the channel. For general topic search, we still need search.list logic.
-        // However, we can optimize metadata fetching if we have IDs.
+        const query = [subtopic.trim(), EDUCATIONAL_KEYWORDS].filter(Boolean).join(' ');
 
-        const response = await youtube.search.list({
+        // 1) Search: order=relevance, maxResults=30
+        const searchResponse = await youtube.search.list({
             key: API_KEY,
             part: ['snippet'],
             q: query,
             type: ['video'],
-            maxResults: maxResults,
-            videoDuration: 'medium', // ~4-20 mins ideal for lessons
+            order: 'relevance',
+            maxResults: 30,
+            videoDuration: 'medium',
             relevanceLanguage: 'en'
         });
 
-        return response.data.items || [];
+        const searchItems = searchResponse.data.items || [];
+        if (searchItems.length === 0) return [];
+
+        const videoIds = searchItems
+            .map((item: any) => item.id?.videoId)
+            .filter(Boolean);
+        if (videoIds.length === 0) return [];
+
+        // 2) Second request: part=statistics (and snippet for consistent shape)
+        const statsResponse = await youtube.videos.list({
+            key: API_KEY,
+            part: ['snippet', 'statistics'],
+            id: videoIds
+        });
+
+        const videosWithStats = (statsResponse.data.items || []) as any[];
+        const withLikeCount = videosWithStats.map((v) => ({
+            ...v,
+            likeCount: parseInt(String(v.statistics?.likeCount || 0), 10) || 0
+        }));
+        withLikeCount.sort((a, b) => b.likeCount - a.likeCount);
+
+        const top5 = withLikeCount.slice(0, 5);
+        return top5.map((v) => ({
+            id: { videoId: String(v.id) },
+            snippet: v.snippet || { title: '', thumbnails: { high: { url: '' } } }
+        }));
     } catch (error) {
         console.error("YouTube Search Error:", error);
         return [];
