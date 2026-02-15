@@ -11,6 +11,7 @@ import { GoogleAIFileManager } from "@google/generative-ai/server";
 import { DifficultyManager } from './DifficultyManager';
 import { generateLocalContentFromTranscript } from '../utils/simpleSummarizer';
 import { transcribeWithASR } from '../services/asrService';
+import { generateQuizFromContent, type DifficultyMode } from '../utils/localQuizGenerator';
 
 // Helper for audio download (refactored from controller)
 const downloadAudio = async (url: string, videoId: string): Promise<string> => {
@@ -144,7 +145,13 @@ export class Orchestrator {
                 // selecting the most informative sentences. Here we simply feed it
                 // the merged captions from all selected videos for this subtopic.
                 generatedContent = generateLocalContentFromTranscript(mergedTranscriptText);
-
+                // Local quiz generation (no Gemini): key terms + MCQs with in-document distractors
+                const quizDifficulty: DifficultyMode =
+                    difficultyMode === 'Remedial' ? 'easy'
+                        : difficultyMode === 'Advanced' ? 'very_challenging'
+                            : 'challenging';
+                const quizQuestions = generateQuizFromContent(generatedContent.content, quizDifficulty);
+                generatedContent.quiz_data = { questions: quizQuestions };
             } else {
                 // LLM-based content generation:
                 // - Treat the merged captions from all top videos as the source text.
@@ -232,6 +239,33 @@ export class Orchestrator {
             });
 
             completedLessons++;
+        }
+
+        // Overall course quiz: one extra "lesson" named "Quiz" (appears in lessons list)
+        const overallContent = results
+            .map((r: any) => r.content)
+            .filter(Boolean)
+            .join('\n\n');
+        if (overallContent) {
+            const overallDifficulty = await difficultyManager.determineDifficulty(userId, courseId);
+            const overallQuizDifficulty: DifficultyMode =
+                overallDifficulty === 'Remedial' ? 'easy'
+                    : overallDifficulty === 'Advanced' ? 'very_challenging'
+                        : 'challenging';
+            const overallQuestions = generateQuizFromContent(overallContent, overallQuizDifficulty);
+            results.push({
+                title: 'Quiz',
+                content: 'Test your knowledge of the entire course. This quiz covers key concepts from all lessons.',
+                videos: [],
+                notes: 'Complete the quiz to reinforce your learning.',
+                quiz_data: { questions: overallQuestions },
+                cognitive_level: 'apply',
+                pedagogical_metadata: {
+                    objectives: ['Review key concepts across all lessons'],
+                    difficulty_mode: overallDifficulty,
+                    challenge_question: null
+                }
+            });
         }
 
         return results;
