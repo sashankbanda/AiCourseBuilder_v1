@@ -17,18 +17,12 @@ export class DifficultyManager {
         // However, for a *new* course, history might be empty, so we default to Standard.
 
         try {
-            const { rows } = await pool.query(
-                `SELECT quiz_score FROM learning_states 
-                 WHERE user_id = $1 AND course_id = $2
-                 ORDER BY created_at DESC LIMIT 1`, // Simplified to use learning_states aggregate or we need a specific 'actions' log
-                [userId, courseId]
-            );
-
-            // Better Approach: Query the 'lessons' table (if we had completed lessons history for this user/topic?)
-            // Or 'adaptive_actions' to see past performance. 
-            // The prompt says "Retrieve the last 3 quiz scores from learning_states". 
-            // My schema for `learning_states` has `average_quiz_score`. 
-            // I'll query the actual `lessons` table for *completed* lessons in this course to get specific recent scores.
+            // NOTE:
+            // Earlier version tried to read `quiz_score` from `learning_states`,
+            // but the actual schema uses `average_quiz_score` instead.
+            // Since what we really care about is recent *lesson*-level scores,
+            // we now rely solely on the `lessons` table and avoid querying
+            // a non‑existent column on `learning_states`.
 
             const historyQuery = await pool.query(
                 `SELECT quiz_score FROM lessons 
