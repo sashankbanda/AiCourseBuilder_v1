@@ -45,13 +45,13 @@ Get API keys:
 
 ### 4. Initialize database
 
+Run `schema.sql` against your PostgreSQL database:
+
 ```bash
-cd backend
-python -c "import asyncio; from app.database import init_db; asyncio.run(init_db())"
-cd ..
+psql "YOUR_DATABASE_URL" -f backend/schema.sql
 ```
 
-Or run `schema.sql` directly against your PostgreSQL database.
+Or paste the contents of `backend/schema.sql` into your database client (pgAdmin, Neon console, etc.).
 
 ## Run
 

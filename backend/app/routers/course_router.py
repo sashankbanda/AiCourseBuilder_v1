@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Any
 from fastapi.responses import StreamingResponse
 from ..dependencies import get_current_user
 from ..config.db import Database
@@ -99,7 +100,7 @@ async def execute_course(req: ExecuteCourseRequest, id: str, user: dict = Depend
     async def event_generator():
         queue = asyncio.Queue()
         
-        def send_event(event: str, data: Any):
+        async def send_event(event: str, data: Any):
             queue.put_nowait((event, data))
             
         orchestrator = Orchestrator(lambda e, d: send_event(e, d))
