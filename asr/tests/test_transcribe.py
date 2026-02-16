@@ -5,11 +5,46 @@ Run from asr folder with venv active:
   python test_transcribe.py              # device + model check only
   python test_transcribe.py <youtube_url> # also run transcription and print result
 
+For performance metrics (RTF, throughput, VRAM/RAM, confidence) use:
+  python benchmark_transcribe.py <audio.wav | youtube_url>
+
 Uses unbuffered output so you see progress in PowerShell.
 """
 import os
 import sys
 import subprocess
+
+# --- Tier 3: DLL search path (Windows) before any ctranslate2/CUDA load ---
+def _setup_dll_search_paths():
+    """Add CUDA/ctranslate2 dirs to DLL search path to reduce 0xC0000005 (missing zlibwapi/cuDNN)."""
+    if sys.platform != "win32":
+        return
+    try:
+        add_dll = getattr(os, "add_dll_directory", None)
+        if not add_dll:
+            return
+        # 1) Prefer ctranslate2 package dir (user can copy zlibwapi.dll + cuDNN here)
+        # Tests are in asr/tests, venv is in asr/venv (one level up)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        parent_dir = os.path.dirname(script_dir)
+        venv_lib = os.path.join(parent_dir, "venv", "Lib", "site-packages", "ctranslate2")
+        if os.path.isdir(venv_lib):
+            add_dll(venv_lib)
+        # 2) CUDA Toolkit (common install paths)
+        cuda_path = os.getenv("CUDA_PATH", "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0")
+        for sub in ("bin", "bin64", ""):
+            d = os.path.join(cuda_path, sub) if sub else cuda_path
+            if os.path.isdir(d):
+                add_dll(d)
+        # CUDA 11 fallback
+        cuda11 = "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.8"
+        if os.path.isdir(cuda11):
+            add_dll(os.path.join(cuda11, "bin"))
+    except Exception:
+        pass
+
+
+_setup_dll_search_paths()
 
 # Ensure output is visible immediately
 def log(msg: str, stream=sys.stderr) -> None:
@@ -59,7 +94,9 @@ def run_transcribe(url: str) -> None:
     log(f"--- Running transcribe.py on URL ---")
     log(f"URL: {url}")
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    script = os.path.join(script_dir, "transcribe.py")
+    # transcribe.py is in the parent directory of tests/
+    parent_dir = os.path.dirname(script_dir)
+    script = os.path.join(parent_dir, "transcribe.py")
     if not os.path.exists(script):
         log(f"ERROR: transcribe.py not found at {script}")
         return
@@ -70,7 +107,7 @@ def run_transcribe(url: str) -> None:
             capture_output=True,
             text=True,
             timeout=600,
-            cwd=script_dir,
+            cwd=parent_dir,
             env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
     except subprocess.TimeoutExpired:

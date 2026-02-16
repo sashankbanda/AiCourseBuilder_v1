@@ -49,9 +49,11 @@ export class Orchestrator {
     async executeCourse(courseId: string, plan: any, userId: string, topic: string) {
         const difficultyManager = new DifficultyManager();
         const contentMode = process.env.CONTENT_MODE || 'local'; // 'local' = no Gemini in execution
-        const results = [];
+        const results: any[] = [];
         let completedLessons = 0;
         const totalLessons = plan.lessons.length;
+        const executeStartTime = Date.now();
+        let ttftEmitted = false;
 
         // Step 2: Execution Loop
         for (const lessonPlan of plan.lessons) {
@@ -219,7 +221,7 @@ export class Orchestrator {
                 }
             }
 
-            results.push({
+            const lessonResult = {
                 title: lessonPlan.title,
                 content: generatedContent.content,
                 // Expose the top 5 shortlisted videos (ranked by likeCount)
@@ -240,8 +242,13 @@ export class Orchestrator {
                     difficulty_mode: difficultyMode,
                     challenge_question: generatedContent.challenge_question
                 }
-            });
-
+            };
+            results.push(lessonResult);
+            if (!ttftEmitted && lessonResult.content) {
+                const ttftSec = (Date.now() - executeStartTime) / 1000;
+                this.sendEvent('ttft', { ttft_sec: Math.round(ttftSec * 100) / 100, lesson_index: completedLessons });
+                ttftEmitted = true;
+            }
             completedLessons++;
         }
 

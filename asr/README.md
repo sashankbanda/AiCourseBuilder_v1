@@ -145,14 +145,29 @@ python transcribe.py "<url>"
 
 ---
 
+## Testing & performance metrics
+
+For **RTF**, **WER/CER**, **ROUGE/BERTScore**, and **faithfulness** see **[TESTING.md](./TESTING.md)**. It covers:
+
+- `benchmark_transcribe.py` — Real-Time Factor, throughput (words/s), VRAM/RAM, confidence
+- `metrics_accuracy.py` — Word/Character Error Rate vs reference transcript (jiwer)
+- `course_quality_metrics.py` — ROUGE, BERTScore, faithfulness (generated vs transcript)
+- Backend **TTFT** (time to first lesson) via SSE event `ttft`
+
+---
+
 ## Files in this folder
 
 | File | Purpose |
 |------|---------|
 | `transcribe.py` | Main script: download audio from URL → transcribe → print and save transcript. |
 | `test_transcribe.py` | Checks GPU/CPU and optionally runs a full transcription. |
+| `benchmark_transcribe.py` | Performance: RTF, throughput, RAM/VRAM, confidence (see TESTING.md). |
+| `metrics_accuracy.py` | WER/CER vs reference transcript (requires jiwer). |
+| `course_quality_metrics.py` | ROUGE, BERTScore, faithfulness for generated content. |
 | `requirements.txt` | Python dependencies (faster-whisper, yt-dlp, tqdm, etc.). |
 | `ASR_GPU_SETUP.md` | Detailed GPU troubleshooting and DLL setup. |
+| `TESTING.md` | Testing workflow and metric definitions. |
 | `transcript_output.txt` | Last transcript output (created when you run `transcribe.py`). |
 
 ---

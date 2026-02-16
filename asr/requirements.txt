@@ -26,3 +26,10 @@ fsspec>=2023.5.0
 httpx>=0.23.0,<1
 packaging>=20.9
 typing-extensions>=4.1.0
+
+# ---- Testing & metrics (optional; for benchmark and accuracy scripts) ----
+jiwer>=3.0.0
+rouge-score>=0.1.0
+bert-score>=0.3.13
+psutil>=5.9.0
+pynvml>=11.5.0
